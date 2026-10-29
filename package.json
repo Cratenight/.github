@@ -1,0 +1,12 @@
+{
+  "name": "crate-night",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "vitest bench --run"
+  },
+  "devDependencies": {
+    "@codspeed/vitest-plugin": "^6.1.0",
+    "vitest": "^4.1.12"
+  }
+}
