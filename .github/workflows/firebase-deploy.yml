@@ -1,0 +1,94 @@
+name: CRATE NIGHT Firebase Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-production-deploy
+  cancel-in-progress: false
+
+env:
+  FIREBASE_PROJECT_ID: crate-night-eaa55
+
+jobs:
+  deploy:
+    name: Validate and deploy CRATE NIGHT
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate deployment files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f firebase.json
+          test -f .firebaserc
+          test -f firestore.rules
+          test -f firestore.indexes.json
+          test -f storage.rules
+          node -e "JSON.parse(require('fs').readFileSync('firebase.json','utf8')); JSON.parse(require('fs').readFileSync('.firebaserc','utf8')); JSON.parse(require('fs').readFileSync('firestore.indexes.json','utf8'));"
+          grep -q 'crate-night-eaa55' .firebaserc
+          echo 'Firebase configuration and Rules files validated.'
+
+      - name: Install Firebase CLI
+        run: npm install --global firebase-tools
+
+      - name: Authenticate Firebase
+        id: auth
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${FIREBASE_SERVICE_ACCOUNT:-}" ]; then
+            echo "::error::Missing FIREBASE_SERVICE_ACCOUNT repository secret."
+            echo "Add it in Settings > Secrets and variables > Actions before deployment."
+            exit 1
+          fi
+          credential_file="$RUNNER_TEMP/firebase-service-account.json"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$credential_file"
+          node - "$credential_file" "$FIREBASE_PROJECT_ID" <<'NODE'
+          const fs = require('fs');
+          const [file, expectedProject] = process.argv.slice(2);
+          let key;
+          try {
+            key = JSON.parse(fs.readFileSync(file, 'utf8'));
+          } catch {
+            console.error('FIREBASE_SERVICE_ACCOUNT is not valid JSON.');
+            process.exit(1);
+          }
+          if (!key.client_email || !key.private_key || !key.project_id) {
+            console.error('Service account JSON is missing required fields.');
+            process.exit(1);
+          }
+          if (key.project_id !== expectedProject) {
+            console.error(`Service account project_id does not match ${expectedProject}.`);
+            process.exit(1);
+          }
+          NODE
+          echo "credentials=$credential_file" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Firestore Rules, Storage Rules and Hosting
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials }}
+        run: |
+          firebase deploy \
+            --project "$FIREBASE_PROJECT_ID" \
+            --only firestore,storage,hosting \
+            --non-interactive
+
+      - name: Remove temporary credentials
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/firebase-service-account.json"
