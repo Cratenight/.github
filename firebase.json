@@ -13,7 +13,13 @@
       ".firebaserc",
       ".git/**",
       ".github/**",
-      "README.md"
+      "README.md",
+      "node_modules/**",
+      "bench/**",
+      "package.json",
+      "package-lock.json",
+      "vitest.config.js",
+      ".gitignore"
     ],
     "cleanUrls": true,
     "trailingSlash": false
